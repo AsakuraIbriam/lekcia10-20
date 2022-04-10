@@ -1,0 +1,76 @@
+#include <stdlib.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <string.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <stdlib.h>
+#include <time.h>
+#include <signal.h>
+#include <pthread.h>
+
+
+void *proccessing(void *arg) {
+    char *filename = (char*)arg;
+    FILE *fd = fopen(filename, "rb");
+
+    int size = 0;
+    fseek(fd, 0, SEEK_END);
+    size = ftell(fd);
+    
+    fseek(fd, 0, SEEK_SET);
+    double *array = (double*) malloc(size);
+
+    size = size/8;
+    for(int i = 0; i < size; i++) {
+        fread((array + i), 8, 1, fd);
+    }
+    
+    fclose(fd);
+
+    double temp = 0;
+    for (int i = 0; i < size; i++) {     
+        for (int j = i+1; j < size; j++) {     
+           if(*(array+i) > *(array+j)) {    
+               temp = *(array+i);    
+               *(array+i) = *(array+j);    
+               *(array+j) = temp;    
+           }     
+        }     
+    }
+
+    FILE *fw = fopen(filename, "wb");
+    
+    for(int i = 0; i < size; i++) {
+        fwrite((array + i), sizeof(double), 1, fw);
+    }
+    fclose(fw);
+    free(array);
+}
+
+int main(int argc, char *argv[]) {  
+
+    pthread_t threads[argc-1];
+    
+    for(int i = 0; i < argc - 1; i++) {
+        if(pthread_create(&threads[i], NULL, proccessing, argv[i + 1])) {
+            perror("Error at creating threads\n");
+            exit(-1);
+        }
+    }   
+
+
+    for(int i = 0; i < argc; i++) {
+        if(pthread_join(threads[i], NULL)){
+            perror("Error at joining threads\n");
+            exit(-1);
+        }
+    }
+
+
+
+
+return 0;
+  }

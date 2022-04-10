@@ -1,0 +1,215 @@
+#include <stdlib.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <string.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <stdlib.h>
+#include <time.h>
+#include <signal.h>
+#include <pthread.h>
+#include <dirent.h>
+#include <semaphore.h>
+
+
+
+//pthred_mutex_lock(&lock), pthread_mutex_unlock(&lock) // sem_init(&producersFreeSlots, 0, 2), sem_destroy(&producersFreeSlots) // -lpthread -lrt
+
+sem_t producersFreeSlots;
+sem_t consumersFreeSlots;
+pthread_mutex_t locker;
+struct sll *head = NULL;
+static const char *description_stock_strings[] = {"clothes", "shoes", "parfumes", "cosmetics", "gadgets", "computers"}; 
+
+int SIZE = 10;
+int C = 0;
+int numberofProducers = 5;
+int numberofConsumers = 6;
+
+
+
+enum description_stock{clothes, shoes, parfumes, cosmetics, gadgets, computers};
+
+
+struct goods {
+    int barcode;
+    enum description_stock description;
+    float price;
+};
+
+struct sll {
+    struct goods item;
+    struct sll *next;
+};
+
+
+struct goods deleteAndReturn(struct sll **head) {
+
+    struct sll *temp = *head;
+    struct goods itemm = (*head)->item;
+    *head = (*head)->next;
+    free(temp);
+    return itemm;
+
+}
+void add(struct goods stock, struct sll **head) {
+   
+    struct sll *item = malloc(sizeof(struct sll));
+    item->item = stock;
+    item->next = *head;
+    *head = item;
+
+}
+
+void *producer(void *arg) {
+   
+    while(1) {
+        unsigned int myseed = time(NULL) ^ getpid() ^ pthread_self();
+        int radnomBarcode = (int)(rand_r(&myseed)%(2323-100 + 1) + 100);
+        enum description_stock randomEnum = (int)(rand_r(&myseed)%(0-5 + 1) + 0);
+        float randomPrice = ((1500 - 1.50) * ((float)rand_r(&myseed) / RAND_MAX)) + 1.50;
+
+        struct goods st;
+        st.barcode = radnomBarcode;
+        st.description = randomEnum;
+        st.price = randomPrice;
+
+        sleep(1);
+        sem_wait(&producersFreeSlots);
+        pthread_mutex_lock(&locker);
+
+        add(st, &head);
+
+        pthread_mutex_unlock(&locker);
+        sem_post(&consumersFreeSlots);
+
+        printf("-----Product with barcode: %d-----From type: %s------With price:%.2f------WAS ADDED\n", 
+                st.barcode, description_stock_strings[st.description], st.price);
+
+    }
+};
+
+void *consumer(void *arg) {
+    while(1) {
+        struct goods deleted;
+        sleep(1);
+        sem_wait(&consumersFreeSlots);
+        pthread_mutex_lock(&locker);
+
+        deleted = deleteAndReturn(&head);
+
+        pthread_mutex_unlock(&locker);
+        sem_post(&producersFreeSlots);
+        
+        printf("-----Product with barcode: %d-----From type: %s------With price:%.2f------WAS BOUGHT\n", 
+                deleted.barcode, description_stock_strings[deleted.description], deleted.price);
+    }
+};
+
+void finishing() {
+
+    FILE *fp;
+    fp = fopen("products.data", "wb");
+
+    struct goods item = deleteAndReturn(&head);
+    struct goods abc;
+    abc = item;
+    
+    while(head) {
+    fwrite(&abc, sizeof(struct goods), 1, fp);
+    item = deleteAndReturn(&head);
+    abc = item;
+    }
+
+    fclose(fp);
+
+}
+
+int main(int argc, char *argv[]) {
+
+        if(argc > 1) {
+        if(argc == 2) {
+        int sz = atoi(argv[1]);
+        SIZE = sz;
+        }
+        if(argc == 4) {
+            int sz = atoi(argv[1]);
+            int producers = atoi(argv[2]);
+            int consumers = atoi(argv[3]);
+            SIZE = sz;
+            numberofProducers = producers;
+            numberofConsumers = consumers;
+        }
+        if((argc == 2) &&  (!strcmp(argv[1], "products.data"))) {
+            struct goods item;
+            FILE *fp;
+            fp = fopen(argv[1], "rb");
+            int n = 0;
+            while(fread(&item, sizeof(struct goods), 1, fp)) {
+                n++;
+                add(item, &head);
+            }
+            fclose(fp);
+            SIZE = SIZE - n;
+            C = n;
+        }
+
+        if((argc == 5) && (!strcmp(argv[5], "products.data"))){
+            int sz = atoi(argv[1]);
+            int producers = atoi(argv[2]);
+            int consumers = atoi(argv[3]);
+            SIZE = sz;
+            numberofProducers = producers;
+            numberofConsumers = consumers;
+            
+
+            struct goods item;
+            FILE *fp;
+            fp = fopen(argv[1], "rb");
+            int n = 0;
+            while(fread(&item, sizeof(struct goods), 1, fp)) {
+                n++;
+                add(item, &head);
+            }
+            fclose(fp);
+            SIZE = SIZE - n;
+            C = n;
+        }
+    }
+
+
+
+    pthread_mutex_init(&locker, NULL);
+    sem_init(&producersFreeSlots, 0, SIZE);
+    sem_init(&consumersFreeSlots, 0, C);
+
+    pthread_t prods[numberofProducers];
+    pthread_t cons[numberofConsumers];
+
+    for(int i = 0; i < numberofProducers; i++) {
+        pthread_create(&prods[i], NULL, producer, NULL);
+    }
+    for(int i = 0; i < numberofConsumers; i++) {
+        pthread_create(&cons[i], NULL, consumer, NULL);
+    }
+
+    
+    
+    struct sigaction act;
+    act.sa_handler = finishing;
+    sigaction(SIGINT, &act, NULL);
+
+    for(int i = 0; i < numberofProducers; i++) {
+        pthread_join(prods[i], NULL);
+    }
+    for(int i = 0; i < numberofConsumers; i++) {
+        pthread_join(cons[i], NULL);
+    }
+
+    sem_destroy(&producersFreeSlots);
+    sem_destroy(&consumersFreeSlots);
+    pthread_mutex_destroy(&locker);
+    return 0; 
+}

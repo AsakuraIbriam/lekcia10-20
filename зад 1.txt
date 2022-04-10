@@ -1,0 +1,46 @@
+#include <stdlib.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <string.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <stdlib.h>
+#include <time.h>
+#include <signal.h>
+#include <pthread.h>
+
+
+
+void *msg(void *arg){
+    unsigned int myseed = time(NULL) ^ getpid() ^ pthread_self();
+
+    char str[10];
+    for(int i = 0; i < 10; i++){ 
+        str[i] = (int)(rand_r(&myseed)%(122-97 + 1) + 97);
+    }
+    printf("%s\n", str);
+}
+
+int main(int argc, char *argv[])
+{
+
+    int N;
+    printf("Enter number of threads: ");
+    scanf("%d", &N);
+
+
+    pthread_t threads[N];
+
+    for(int i = 0; i < N; i++) {
+       if(pthread_create(&threads[i], NULL, msg, NULL)) {
+         exit(-1);
+       }
+    }
+
+    for(int i = 0; i < N; i++){
+        pthread_join(threads[i], NULL);
+    }
+return 0;
+  }
